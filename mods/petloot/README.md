@@ -4,7 +4,16 @@ An opt-in mod: a worn cosmetic pet walks to nearby selected currency and picks i
 enable it with `/mod_enable petloot` or Waypoint. `/petloot off` pauses pickup for this character, including after an
 area change or restart; `/petloot on` resumes it. Removing or disabling the mod leaves normal pets following the player.
 
-Requires LocalExile v0.5.1-beta or later, the first release with PR #737: the game's saved pickup and cosmetic pet walking methods. Pickup runs in leagues with both Game and Cosmetics.
+Requires [LocalExile PR #1045](https://github.com/LocalExile/LocalExile/pull/1045), which adds the movement-speed hook.
+The manifest lists the current release pending a release containing that hook. Pickup runs in leagues with both Game and Cosmetics.
+
+## Movement speed
+
+Worn pets move at **2x** their normal owner-relative speed by default, while following, collecting and returning.
+Set the multiplier in Waypoint or with `/petloot speed 2` (0.25–10); `/petloot speed 1` restores normal speed.
+The multiplier belongs to the character's saved profile, and existing profiles without a speed value start at 2x.
+`/petloot off` pauses collection while keeping this movement setting. Disabling or removing the mod restores ordinary
+pet speed on the next player tick, including a walk already in progress. Other entities and the player's speed are unchanged.
 
 ## Filters
 
@@ -30,6 +39,7 @@ Gold disabled here means **pet pickup** disabled: the game's ordinary nearby gol
 - `/petloot common on|off`: common-currency preset.
 - `/petloot gold on|off`: pet gold pickup.
 - `/petloot range 40`: collection radius, 5–80 cells.
+- `/petloot speed 2`: pet movement multiplier, 0.25–10 (default 2).
 - `/petloot nearby`: up to twelve nearby names, stack sizes and metadata ids.
 - `/petloot reset`: discard this character's overrides and use server defaults.
 

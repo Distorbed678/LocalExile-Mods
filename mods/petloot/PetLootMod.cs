@@ -5,9 +5,15 @@ using GameServer.Modding;
 
 public sealed class PetLootMod : IMod
 {
-    public sealed record Profile(bool Enabled, bool Gold, int Range, bool CommonCurrency, Dictionary<string, int> Rules);
+    public sealed record Profile(bool Enabled, bool Gold, int Range, bool CommonCurrency, Dictionary<string, int> Rules)
+    {
+        public double MovementSpeed { get; init; } = 2;
+    }
     public sealed record Choices(bool Enabled, bool Gold, int Range, bool CommonCurrency,
-        Dictionary<string, int> Rules, Dictionary<string, Profile> Profiles);
+        Dictionary<string, int> Rules, Dictionary<string, Profile> Profiles)
+    {
+        public double MovementSpeed { get; init; } = 2;
+    }
 
     static readonly HashSet<string> Common = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -36,7 +42,13 @@ public sealed class PetLootMod : IMod
         choices = loaded with { Rules = Normalize(loaded.Rules), Profiles = loaded.Profiles.ToDictionary(p => p.Key,
             p => p.Value with { Rules = Normalize(p.Value.Rules) }) };
         GameEvents.Tick.Add(mod.Manifest.Id, Tick);
-        GameEvents.Command(mod.Manifest.Id, "petloot", "/petloot [on|off|toggle|list|nearby|gold|common|range|allow|block|remove|reset]", Command);
+        GameEvents.MovementSpeed.Add(mod.Manifest.Id, (conn, id, speed) =>
+        {
+            if (!mod.Lifetime.IsActive) return speed;
+            lock (conn.Pets)
+                return conn.Pets.ContainsKey(id) ? speed * ProfileOf(conn).MovementSpeed : speed;
+        });
+        GameEvents.Command(mod.Manifest.Id, "petloot", "/petloot [on|off|toggle|list|nearby|gold|common|range|speed|allow|block|remove|reset]", Command);
         mod.Log("opt-in pet pickup; /petloot for this character's rules.");
     }
 
@@ -54,7 +66,8 @@ public sealed class PetLootMod : IMod
     {
         lock (choicesGate)
             return choices.Profiles.GetValueOrDefault(Key(conn))
-                ?? new(choices.Enabled, choices.Gold, choices.Range, choices.CommonCurrency, choices.Rules);
+                ?? new(choices.Enabled, choices.Gold, choices.Range, choices.CommonCurrency, choices.Rules)
+                    { MovementSpeed = choices.MovementSpeed };
     }
 
     sealed record Candidate(uint Id, WorldItemObject Item, ItemCatalog.BaseType Type);
@@ -172,9 +185,9 @@ public sealed class PetLootMod : IMod
             if (action is "status" or "list")
             {
                 string rules = string.Join(", ", profile.Rules.OrderBy(r => r.Key).Select(r => $"{r.Key}: {(r.Value == 0 ? "blocked" : "min " + r.Value)}"));
-                await conn.Commands!.Reply($"Pet Loot: {(profile.Enabled ? "on" : "paused")}; gold {profile.Gold}; common currency {profile.CommonCurrency}; range {profile.Range}.\n"
+                await conn.Commands!.Reply($"Pet Loot: {(profile.Enabled ? "on" : "paused")}; gold {profile.Gold}; common currency {profile.CommonCurrency}; range {profile.Range}; pet speed {profile.MovementSpeed.ToString(System.Globalization.CultureInfo.InvariantCulture)}x.\n"
                     + $"Overrides: {(rules.Length == 0 ? "none" : rules)}\n"
-                    + "/petloot on|off|toggle; gold|common on|off; range 5-80; allow <item> [minimum]; block|remove <item>; nearby; reset");
+                    + "/petloot on|off|toggle; gold|common on|off; range 5-80; speed 0.25-10; allow <item> [minimum]; block|remove <item>; nearby; reset");
                 return;
             }
             if (action == "nearby")
@@ -189,6 +202,13 @@ public sealed class PetLootMod : IMod
                 profile = action == "gold" ? profile with { Gold = args[1] == "on" } : profile with { CommonCurrency = args[1] == "on" };
             else if (action == "range" && args.Length == 2 && int.TryParse(args[1], out int range) && range is >= 5 and <= 80)
                 profile = profile with { Range = range };
+            else if (action == "speed")
+            {
+                if (args.Length != 2 || !double.TryParse(args[1], System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture, out double speed) || !double.IsFinite(speed) || speed is < .25 or > 10)
+                { await conn.Commands!.Reply("Use /petloot speed <0.25-10>; 1 is normal, 2 is double speed."); return; }
+                profile = profile with { MovementSpeed = speed };
+            }
             else if (action is "allow" or "block" or "remove" && args.Length > 1)
             {
                 int minimum = 1, end = args.Length;

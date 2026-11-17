@@ -2,11 +2,11 @@
 
 Optional Path of Building import front end for LocalExile. It is a normal global mod: `IMod`, `mod.json`, host-managed settings and hot reload. It uses the public SDK and Gateway `GameEvents`; it is absent from server modules, league lists and normal server releases.
 
-The strict converter requires the companion LocalExile server update. The manifest lists 0.5.1-beta as a placeholder until that update ships; the unchanged frontend contract remains compatible with that SDK.
+The front end works with LocalExile **0.4.3-beta**, **0.5.0-beta**, **0.5.1-beta** and **0.5.2-beta**; its converter contract is unchanged since 1.0.2. The strict converter source in `Converter/` needs **0.5.2-beta** or later, the first release with native item properties and game-owned import validation (LocalExile/LocalExile#1013): an older server refuses the builds it prepares.
 
 ## Installation and commands
 
-Install with Waypoint after the required server update, or build `Pob.csproj` with `-p:LocalExileRoot=<checkout>` and put its output in `Mods/Binaries/pob/`.
+Install with Waypoint, or build `Pob.csproj` with `-p:LocalExileRoot=<checkout>` and put its output in `Mods/Binaries/pob/`.
 
 - `/pob <code>`: prepare a build using the configured external converter.
 - `/pob file build.txt`: read a longer code from the operator-managed `data/pob-import/inbox/`.
@@ -51,8 +51,7 @@ No converter executable, client changes, credentials or game assets ship with th
 ## Strict converter source
 
 `Converter/PobImport.csproj` builds the separate, operator-configured .NET 10 converter from source.
-It requires the companion LocalExile update for native item properties and game-owned import validation.
-The compatibility version in the manifest is a placeholder pending that server update.
+It requires LocalExile 0.5.2-beta or later (LocalExile/LocalExile#1013) for native item properties and game-owned import validation.
 The frontend release does not automatically build, install or run this source project.
 
 From this repository root, a build for an existing LocalExile checkout is:

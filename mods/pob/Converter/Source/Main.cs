@@ -91,7 +91,8 @@ static class Entry
             foreach (var slot in abyssal)
             {
                 var m = Regex.Match(slot.Name, @"^(.+) Abyssal Socket (\d+)$");
-                if (!m.Success || !hostRows.TryGetValue(m.Groups[1].Value, out byte row) || !byId.TryGetValue(slot.ItemId, out var definition)) continue;
+                if (!m.Success || !hostRows.TryGetValue(m.Groups[1].Value, out byte row) || !byId.TryGetValue(slot.ItemId, out var definition))
+                { warnings.Add($"Пропущено ({slot.Name}): неизвестный предмет-хозяин или предмет."); continue; }
                 if (build.UseSecondWeaponSet) row = row switch { 2 => 14, 3 => 15, 14 => 2, 15 => 3, _ => row };
                 if (!equipment.Inventories.TryGetValue(row, out var list) || list.Count == 0)
                 { warnings.Add($"Пропущено ({slot.Name}): нет предмета-хозяина."); continue; }
@@ -276,17 +277,9 @@ static class Entry
         int ordinary = progress.Passives.Count, granted = tree.PointsGranted(progress.Passives);
         int extra = Math.Max(0, ordinary + clusterIds.Count - (build.Level - 1) - granted - NativeProgress.AscendancyPoints(build, data));
 
-        // Inventories: keep everything but the replaced rows; new item ids start above the kept ones.
+        // Inventories: only the rows the build replaces; the Gateway keeps the character's other rows.
         var kept = new JsonObject();
-        uint maxId = 0;
-        if (save["Inventories"] is JsonObject old)
-            foreach (var (row, list) in old)
-            {
-                if (Replaced.Contains(byte.Parse(row))) continue;
-                kept[row] = list!.DeepClone();
-                foreach (var p in list!.AsArray()) maxId = Math.Max(maxId, p!["Id"]!.GetValue<uint>());
-            }
-        uint next = maxId + 1;
+        uint next = 1;
         foreach (var (row, placements) in equipment.Inventories)
             kept[row.ToString()] = new JsonArray([.. placements.Select(p => Placement(next++, p.X, p.Y, p.Item))]);
         if (jewels.Count > 0)
@@ -325,7 +318,7 @@ static class Entry
         record["Level"] = build.Level;
 
         // Lines handled here (PassiveHashMods) or that are PoB labels, not modifiers.
-        warnings.RemoveAll(w => Regex.IsMatch(w, @"modifier '(Passive Skills in Radius of .* can be Allocated|without being connected to your tree|Passage|Allocates .*)'"));
+        warnings.RemoveAll(w => HandledPassiveLine(w, data));
         // A skill an item modifier or a passive grants comes with that item or passive: there are no gems to socket.
         warnings.RemoveAll(w => w.Contains("item-granted skill source"));
         int items = equipment.Inventories.Sum(i => i.Value.Count);
@@ -340,7 +333,8 @@ static class Entry
             foreach (string w in warnings.Distinct()) Console.WriteLine("  - " + w);
         }
         var losses = warnings.Where(w => w.StartsWith("Пропущено") || w.StartsWith("Skipped item") || w.StartsWith("Skipped gem")
-            || w.StartsWith("Skipped") || w.StartsWith("Skipped modifier") || w.StartsWith("Джевел") || w.StartsWith("Кластер") || w.StartsWith("Дерево")).Distinct().ToArray();
+            || w.StartsWith("Skipped") || w.StartsWith("Skipped modifier") || w.StartsWith("Джевел") || w.StartsWith("Кластер") || w.StartsWith("Сокет кластера")
+            || w.StartsWith("Дерево")).Distinct().ToArray();
         if (losses.Length > 0)
             throw new InvalidDataException($"Импорт с потерями запрещён; база не изменена: {string.Join("; ", losses)}");
         var result = new JsonObject { ["Record"] = record, ["Save"] = save,
@@ -449,6 +443,23 @@ static class Entry
         if (added.Count == 0) return item;
         var ids = added.Select(a => a.Id).ToHashSet();
         return item with { Mods = [.. (item.Mods ?? []).Where(m => !ids.Contains(m.Id)), .. added] };
+    }
+
+    /// <summary>Whether a "skipped modifier" warning is about a line PassiveHashMods wrote itself. A line that names
+    /// a passive this client does not have was not written, so its warning stays and stops the import as a loss.</summary>
+    static bool HandledPassiveLine(string warning, string data)
+    {
+        if (Regex.Match(warning, @"modifier '(.*)'") is not { Success: true } quoted) return false;
+        string line = quoted.Groups[1].Value;
+        if (Regex.Match(line, @"^Passive Skills in Radius of (.+?) can be Allocated") is { Success: true } escape)
+            return GraphIdByName(data, escape.Groups[1].Value.Trim(), ascendancy: false) is not null;
+        if (Regex.Match(line, @"^Allocates (.+?) if you have the matching modifier on Forbidden (?:Flame|Flesh)") is { Success: true } forbidden)
+            return GraphIdByName(data, forbidden.Groups[1].Value.Trim(), ascendancy: true) is not null;
+        if (Regex.Match(line, @"^Allocates (.+?)\s*$") is { Success: true } anoint)
+            return GraphIdByName(data, anoint.Groups[1].Value.Trim(), ascendancy: false, notable: true) is not null;
+        // The second line of Impossible Escape, and PoB's "Passage" label.
+        return line.StartsWith("without being connected to your tree", StringComparison.Ordinal)
+            || line.StartsWith("Passage", StringComparison.Ordinal);
     }
 
     static Dictionary<string, (int Graph, bool Ascendancy)>? passiveNames;

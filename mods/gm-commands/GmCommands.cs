@@ -442,8 +442,8 @@ static class GmCommands
             {
                 var flasks = stash.FillFlasks(tab, ItemsFor(conn), ShapeOf, out string flaskWhy);
                 if (flasks is null) { await conn.Commands!.Reply($"Tab \"{stash.NameOf(tab)}\": {flaskWhy}"); return; }
-                if (flasks.Added.Count > 0 && TabsSentOf(conn, stash).Contains(tab))
-                    await Send(remote, stream, ciphers, InstanceItems.InventoryChange(stash.InventoryOf(tab), stash.NextRevision(tab), [], flasks.Added),
+                if (flasks.Added.Count > 0)
+                    await SendTabChange(remote, stream, ciphers, conn, stash, tab, [], flasks.Added,
                         $"0x00bf stash tab {tab}: /item_tab {stash.NameOf(tab)}, {flasks.Added.Count} flask(s)");
                 await conn.Commands!.Reply($"Tab \"{stash.NameOf(tab)}\" (FlaskStash): {flasks.Added.Count} flask(s) added, {flasks.Full} already present, {flasks.Skipped} unavailable; one of each flask/tincture base and unique");
                 return;
@@ -456,16 +456,6 @@ static class GmCommands
                 if (collection.Skipped.Count > 0) Console.WriteLine($"[gateway] /item_tab unique unavailable: {string.Join(", ", collection.Skipped)}");
                 return;
             }
-            if (stash.TabType(tab) == StashRules.Flask)
-            {
-                var flasks = stash.FillFlasks(tab, ItemsFor(conn), ShapeOf, out string flaskWhy);
-                if (flasks is null) { await conn.Commands!.Reply($"Tab \"{stash.NameOf(tab)}\": {flaskWhy}"); return; }
-                if (flasks.Added.Count > 0 && TabsSentOf(conn, stash).Contains(tab))
-                    await Send(remote, stream, ciphers, InstanceItems.InventoryChange(stash.InventoryOf(tab), stash.NextRevision(tab), [], flasks.Added),
-                        $"0x00bf stash tab {tab}: /item_tab {stash.NameOf(tab)}, {flasks.Added.Count} flask(s)");
-                await conn.Commands!.Reply($"Tab \"{stash.NameOf(tab)}\" (FlaskStash): {flasks.Added.Count} flask(s) added, {flasks.Full} already present, {flasks.Skipped} unavailable; one of each flask/tincture base and unique");
-                return;
-            }
             if (stash.TabType(tab) == StashRules.Gem)
             {
                 // The gem tab: one of every creatable gem variant (transfigured and Vaal too), red, green, blue then white,
@@ -474,8 +464,8 @@ static class GmCommands
                     .Select(g => ItemCatalog.Create(g.Type) with { GemVariant = g.Variant.Index });
                 var cells = stash.FillCells(tab, gems, i => $"{i.TypeHash:x8}:{i.GemVariant}", ShapeOf, out string gemWhy);
                 if (cells is null) { await conn.Commands!.Reply($"Tab \"{stash.NameOf(tab)}\": {gemWhy}"); return; }
-                if (cells.Added.Count > 0 && TabsSentOf(conn, stash).Contains(tab))
-                    await Send(remote, stream, ciphers, InstanceItems.InventoryChange(stash.InventoryOf(tab), stash.NextRevision(tab), [], cells.Added),
+                if (cells.Added.Count > 0)
+                    await SendTabChange(remote, stream, ciphers, conn, stash, tab, [], cells.Added,
                         $"0x00bf stash tab {tab}: /item_tab {stash.NameOf(tab)}, {cells.Added.Count} gem(s)");
                 await conn.Commands!.Reply($"Tab \"{stash.NameOf(tab)}\" (GemStash): {cells.Added.Count} gem(s) added, one of each variant" +
                     (cells.Full > 0 ? $"; {cells.Full} already there" : "") + (cells.Skipped > 0 ? $"; {cells.Skipped} found no room" : ""));
@@ -1064,6 +1054,14 @@ static class GmCommands
         .Add("descendancy", "/descendancy [name|none|open [row|name]|refund <node|all>] (dev: the second ascendancy layer 0x33's spare byte selects: Affliction's Wildwood specialisations and the 3.29 Bloodline classes; open shows the client's Descendancy class selector)", async args =>
         {
             if (Game.Descendancies.Rows.Count <= 1) throw new ArgumentException("Descendancy data is missing; run scripts/dev/extract-data.ps1");
+            // One Azmeri class at a time: a class flag left from an earlier selection keeps that Wildwood row unlocked
+            // for the game's own selector after the character has moved on. The point flags stay, as earned progress.
+            async Task ClearAzmeriClass(byte keep)
+            {
+                string[] stale = [.. new byte[] { 1, 2, 3 }.Where(r => r != keep)
+                    .Select(r => DescendancyCatalog.UnlockFlag(r)).OfType<string>().Where(conn.HasQuestFlag)];
+                if (stale.Length > 0) await SetQuestFlags(remote, stream, ciphers, conn, stale, on: false);
+            }
             if (args.Length == 0)
             {
                 var current = Game.Descendancies.Rows.FirstOrDefault(r => r.Index == conn.DescendancyRow);
@@ -1102,6 +1100,7 @@ static class GmCommands
             if (args[0].Equals("none", StringComparison.OrdinalIgnoreCase))
             {
                 Game.SelectDescendancyForDevelopment(conn, 0);
+                await ClearAzmeriClass(keep: 0);
                 await conn.Commands!.Reply("Descendancy cleared. Reloading the area to show the change.");
                 await ChangeArea(remote, stream, ciphers, conn, new PendingTransfer(conn.Layout.Hash, 0, false), "descendancy none");
                 return;
@@ -1117,8 +1116,9 @@ static class GmCommands
                 3 => ["AzmeriArePrimalist", "PrimalistPassivePoints1", "PrimalistPassivePoints2", "PrimalistPassivePoints3", "PrimalistPassivePoints4"],
                 _ => [],
             };
-            if (azmeri.Length > 0) await SetQuestFlags(remote, stream, ciphers, conn, azmeri);
             Game.SelectDescendancyForDevelopment(conn, row.Index);
+            await ClearAzmeriClass(keep: row.Index);
+            if (azmeri.Length > 0) await SetQuestFlags(remote, stream, ciphers, conn, azmeri);
             await conn.Commands!.Reply($"Descendancy selected - {row.Name} (row {row.Index})" +
                 (azmeri.Length > 0 ? " with its Azmeri flags" : "") + ". Reloading the area to show its tree.");
             await ChangeArea(remote, stream, ciphers, conn, new PendingTransfer(conn.Layout.Hash, 0, false), $"descendancy {row.Name}");

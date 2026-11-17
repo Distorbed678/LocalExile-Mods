@@ -4,7 +4,7 @@
   "description": "Worn pets collect selected currency with per-character filters and an immediate pause switch.",
   "author": "zj1022",
   "version": "1.1.0",
-  "compatibleClientVersions": ["0.5.1-beta"],
+  "compatibleClientVersions": ["0.5.2-beta"],
   "kind": "feature",
   "depends": ["Game", "Cosmetics"],
   "enabled": false

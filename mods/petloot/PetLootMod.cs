@@ -39,8 +39,10 @@ public sealed class PetLootMod : IMod
     {
         mod = context;
         var loaded = mod.Settings<Choices>();
-        choices = loaded with { Rules = Normalize(loaded.Rules), Profiles = loaded.Profiles.ToDictionary(p => p.Key,
-            p => p.Value with { Rules = Normalize(p.Value.Rules) }) };
+        // A hand-edited settings file gets the same 0.25-10 range /petloot speed and Waypoint enforce.
+        choices = loaded with { Rules = Normalize(loaded.Rules), MovementSpeed = Speed(loaded.MovementSpeed),
+            Profiles = loaded.Profiles.ToDictionary(p => p.Key,
+                p => p.Value with { Rules = Normalize(p.Value.Rules), MovementSpeed = Speed(p.Value.MovementSpeed) }) };
         GameEvents.Tick.Add(mod.Manifest.Id, Tick);
         GameEvents.MovementSpeed.Add(mod.Manifest.Id, (conn, id, speed) =>
         {
@@ -54,6 +56,8 @@ public sealed class PetLootMod : IMod
 
     static string Key(ClientState conn) => string.Join("|", new[] { conn.Account ?? "", conn.League ?? "Standard", Program.CharacterName(conn) }
         .Select(Uri.EscapeDataString));
+
+    static double Speed(double value) => double.IsFinite(value) ? Math.Clamp(value, .25, 10) : 2;
 
     static Dictionary<string, int> Normalize(Dictionary<string, int> rules)
     {

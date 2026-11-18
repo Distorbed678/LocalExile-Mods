@@ -80,9 +80,27 @@
               "min": 0,
               "max": 65535
             }
+          },
+          "movementSpeed": {
+            "type": "number",
+            "default": 2,
+            "min": 0.25,
+            "max": 10,
+            "format": "multiplier",
+            "label": "Pet movement speed",
+            "description": "Multiplier for following, collecting and returning; 1 is normal speed, 2 is double speed."
           }
         }
       }
+    },
+    "movementSpeed": {
+      "type": "number",
+      "default": 2,
+      "min": 0.25,
+      "max": 10,
+      "format": "multiplier",
+      "label": "Pet movement speed",
+      "description": "Multiplier for following, collecting and returning; 1 is normal speed, 2 is double speed."
     }
   }
 }

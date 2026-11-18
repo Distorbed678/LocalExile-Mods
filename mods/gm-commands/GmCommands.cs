@@ -1345,12 +1345,14 @@ static class GmCommands
             if (Stats.Key("base_skill_area_of_effect_+%") is not uint stat) throw new ArgumentException("no area of effect stat in the data");
             bool off = args[0].Equals("off", StringComparison.OrdinalIgnoreCase);
             int value = off ? 0 : int.Parse(args[0]);
-            lock (conn.Monsters) { if (off) conn.PlayerStats.Remove(stat); else conn.PlayerStats[stat] = value; }
+            // The Righteous Fire burning now, before this command's own sends: the relight below is for that one only.
+            RighteousFireState? burning;
+            lock (conn.Monsters) { if (off) conn.PlayerStats.Remove(stat); else conn.PlayerStats[stat] = value; burning = conn.RighteousFire; }
             await SendPlayerStatSnapshot(remote, stream, ciphers, conn,
             () => PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn)),
                 $"0x01b3 stats: base_skill_area_of_effect_+% = {(off ? "the character's own" : value)}");
             await SendSkills(remote, stream, ciphers, conn);
-            bool relit = await RelightRighteousFire(remote, stream, ciphers, conn, "/set_aoe");
+            bool relit = await RelightRighteousFire(remote, stream, ciphers, conn, "/set_aoe", burning);
             await conn.Commands!.Reply((off ? "Increased area of effect: the character's own" : $"Increased area of effect: {value}%")
                 + (relit ? ", Righteous Fire relit" : ""));
         })

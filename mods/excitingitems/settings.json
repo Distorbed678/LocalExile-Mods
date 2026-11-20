@@ -214,9 +214,9 @@
     },
     "showInFilters": {
       "type": "bool",
-      "default": true,
+      "default": false,
       "label": "Loot filter beam",
-      "description": "Puts a rule at the top of every loot filter in the filter folder that always shows marked items, with a beam and a sound.",
+      "description": "Puts a rule at the top of every loot filter in the filter folder that always shows marked items, with a beam and a sound. It edits your own filters; turning it off takes the rule out again.",
       "when": {
         "mark": true
       }

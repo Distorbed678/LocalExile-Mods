@@ -14,7 +14,7 @@ using GameServer.Modding;
 /// object from the client and creates the new one. The game's own refusals (no fracturing of influenced or synthesised
 /// items) are its crafting rules, not a drop's: an item gets these whatever it is.
 /// </summary>
-public sealed class ExcitingItemsMod : IMod
+public sealed class ExcitingItemsMod : IMod, IDisposable
 {
     sealed record ImplicitChoices(int Chance, int ChanceTwo, int ChanceThree, string Mode, bool RarityWeights, string[] Rarities);
     sealed record EmpoweredChoices(int Chance, int[] Percent, string[] Rarities);
@@ -25,10 +25,6 @@ public sealed class ExcitingItemsMod : IMod
     const string FilterStart = "# >>> excitingitems (LocalExile mod): always show exciting items >>>";
     const string FilterEnd = "# <<< excitingitems <<<";
     const string OwnFilter = "LocalExile Exciting Items.filter";
-    // What Unique Implicits, this mod's old name, put in the filters: taken out again.
-    const string OldStart = "# >>> uniqueimplicits (LocalExile mod): always show items with a unique implicit >>>";
-    const string OldEnd = "# <<< uniqueimplicits <<<";
-    const string OldOwnFilter = "LocalExile Unique Implicits.filter";
     static readonly string[] FilterRule =
     [
         "Show",
@@ -70,13 +66,13 @@ public sealed class ExcitingItemsMod : IMod
         /// <summary>The drop weight of the most common unique that has the modifier (0 to 1; Mageblood about 0.001).</summary>
         public double Weight;
     }
-    sealed class Watch { public uint Next; public bool Started; }
-    sealed record Forced(int Implicits, bool Empowered, bool Extra);
+    sealed class Watch { public uint Next; public bool Started; public readonly HashSet<uint> Ours = []; }
+    sealed record Forced(int Implicits, bool Empowered, bool Extra, ClientState For);
 
     readonly ConditionalWeakTable<ItemCatalog, List<Source>> _pools = new();
     readonly ConditionalWeakTable<InstanceGround, Watch> _watches = new();
     Choices _choices = new(new(1000, 100000, 1000000, "wild", true, ["magic", "rare", "unique"]), new(500, [10, 100], ["magic", "rare", "unique"]),
-        new(1000, ["magic", "rare", "unique"]), [], true, true, true, "");
+        new(1000, ["magic", "rare", "unique"]), [], true, false, true, "");
     Forced? _forced;
     Action<string> _log = _ => { };
 
@@ -99,13 +95,13 @@ public sealed class ExcitingItemsMod : IMod
                     int count = args.Length > 2 && int.TryParse(args[2], out int n) ? Math.Clamp(n, 1, 3) : 1;
                     var forced = what switch
                     {
-                        "implicit" or "implicits" => new Forced(count, false, false),
-                        "empowered" or "boost" => new Forced(0, true, false),
-                        "extra" or "fractured" => new Forced(0, false, true),
-                        _ => new Forced(count, true, true),
+                        "implicit" or "implicits" => new Forced(count, false, false, conn),
+                        "empowered" or "boost" => new Forced(0, true, false, conn),
+                        "extra" or "fractured" => new Forced(0, false, true, conn),
+                        _ => new Forced(count, true, true, conn),
                     };
                     Volatile.Write(ref _forced, forced);
-                    await player.Tell($"Exciting Items: the next magic, rare or unique drop gets {Effects(forced.Implicits, forced.Empowered, forced.Extra)}.");
+                    await player.Tell($"Exciting Items: your next magic, rare or unique drop gets {Effects(forced.Implicits, forced.Empowered, forced.Extra)}.");
                     return;
                 }
                 var c = _choices;
@@ -114,6 +110,13 @@ public sealed class ExcitingItemsMod : IMod
                     $"({c.Implicits.Mode}, {known} modifiers known); empowered 1 in {c.Empowered.Chance} (+{Low(c)}-{High(c)}%); " +
                     $"extra fractured modifier 1 in {c.ExtraModifier.Chance}. /exciting next implicit|empowered|extra|all forces one.");
             });
+    }
+
+    // A reload makes a new instance: the tables are emptied so they hold nothing of the old assembly.
+    public void Dispose()
+    {
+        _pools.Clear(); _watches.Clear(); _placeable.Clear(); _slots.Clear();
+        _forced = null;
     }
 
     static int Low(Choices c) => Math.Max(1, c.Empowered.Percent.ElementAtOrDefault(0));
@@ -179,7 +182,7 @@ public sealed class ExcitingItemsMod : IMod
     };
 
     // Every unique's modifiers, once per data set: which kinds of item have each, and how it rolls there.
-    List<Source> Pool(ItemCatalog catalog, UniqueCatalog uniques, ItemDrops drops) => _pools.GetValue(_catalog = catalog, _ =>
+    List<Source> Pool(ItemCatalog catalog, UniqueCatalog uniques, ItemDrops drops) => _pools.GetValue(catalog, _ =>
     {
         var byId = new Dictionary<string, Source>(StringComparer.Ordinal);
         foreach (var unique in uniques.All)
@@ -213,13 +216,13 @@ public sealed class ExcitingItemsMod : IMod
     /// welcome on its own kind of item. Every modifier not blacklisted has somewhere to go: one the chosen mode leaves
     /// without a slot that drops follows Wild's rules, and one tied to kinds of item that never drop (a fishing rod's)
     /// goes on any gear.</summary>
-    bool Fits(Source source, ItemCatalog.BaseType type)
+    bool Fits(ItemCatalog catalog, Source source, ItemCatalog.BaseType type)
     {
         string mode = _choices.Implicits.Mode.ToLowerInvariant();
         if (Rule(source, type, mode)) return true;
-        if (Placeable(source, mode)) return false;
+        if (Placeable(catalog, source, mode)) return false;
         if (mode != "wild" && Rule(source, type, "wild")) return true;
-        return !Placeable(source, "wild") && JewelClasses.Contains(type.Class) == source.Jewel;
+        return !Placeable(catalog, source, "wild") && JewelClasses.Contains(type.Class) == source.Jewel;
     }
 
     static bool Rule(Source source, ItemCatalog.BaseType type, string mode)
@@ -238,12 +241,10 @@ public sealed class ExcitingItemsMod : IMod
 
     readonly ConditionalWeakTable<ItemCatalog, Dictionary<(Source, string), bool>> _placeable = new();
     readonly ConditionalWeakTable<ItemCatalog, List<ItemCatalog.BaseType>> _slots = new();
-    ItemCatalog? _catalog;
 
     /// <summary>Whether some kind of item that drops (and the jewels) takes the modifier by the mode's rule.</summary>
-    bool Placeable(Source source, string mode)
+    bool Placeable(ItemCatalog catalog, Source source, string mode)
     {
-        if (_catalog is not { } catalog) return true;
         var known = _placeable.GetValue(catalog, _ => new());
         lock (known)
             if (!known.TryGetValue((source, mode), out bool placeable))
@@ -286,7 +287,7 @@ public sealed class ExcitingItemsMod : IMod
     {
         var catalog = Game.ItemsFor(conn);
         var have = item.Mods.Select(m => m.Hash).ToHashSet();
-        var pool = Pool(catalog, Game.UniquesFor(conn), Game.DropsFor(conn)).Where(s => !have.Contains(s.Mod.Hash) && Fits(s, type)).ToList();
+        var pool = Pool(catalog, Game.UniquesFor(conn), Game.DropsFor(conn)).Where(s => !have.Contains(s.Mod.Hash) && Fits(catalog, s, type)).ToList();
         var mods = item.Mods.ToList();
         var families = new HashSet<int>(item.Mods.SelectMany(m => catalog.Mods.ByHash(m.Hash)?.Families ?? []));
         int added = 0;
@@ -339,59 +340,47 @@ public sealed class ExcitingItemsMod : IMod
         if (item.FracturedCount > 0) return null;
         var catalog = Game.ItemsFor(conn);
         var rolls = Game.RollsFor(conn);
-        var pool = rolls.Pool(type, item).Where(p => p.Weight > 0 && !Blacklisted(p.Mod)).ToList();
-        string? influencedBy = null;
-        if (_choices.ExtraModifier.InfluencedMods)
-        {
-            // The modifiers one influence (not the item's own) adds to this base's pool at this item level, as an item
-            // with that influence would roll them; the item does not get the influence.
-            var have = pool.Select(p => p.Mod.Hash).ToHashSet();
-            var options = Enum.GetValues<ItemInfluence>().Where(i => i != ItemInfluence.None && !item.Influences.HasFlag(i))
-                .Select(i => (Influence: i, Mods: rolls.Pool(type, item.ItemLevel, item.Influences | i, null)
-                    .Where(p => p.Weight > 0 && !have.Contains(p.Mod.Hash) && !Blacklisted(p.Mod)).ToList()))
-                .Where(o => o.Mods.Count > 0).ToList();
-            if (options.Count > 0)
-            {
-                var chosen = options[rng.Next(options.Count)];
-                influencedBy = chosen.Influence.ToString();
-                pool.AddRange(chosen.Mods);
-            }
-        }
-        if (pool.Count == 0) return null;
-        var mods = item.Mods.ToList();
+        const int Prefix = ItemRolls.Prefix, Suffix = ItemRolls.Suffix;
         int SideOf(ItemMod m) => catalog.Mods.ByHash(m.Hash)?.GenerationType ?? 0;
-        var families = new HashSet<int>(mods.SelectMany(m => catalog.Mods.ByHash(m.Hash)?.Families ?? []));
-        var added = new List<ItemMod>();
-        ItemMod? Add(int side)
+        int OnSide(Item it, int side) => it.Mods.Count(m => m.Section == ModSection.Explicit && SideOf(m) == side);
+        // The pool may take in one influence's modifiers (not the item's own), as an item with that influence would roll
+        // them; the item does not get the influence.
+        var influences = Enum.GetValues<ItemInfluence>().Where(i => i != ItemInfluence.None && !item.Influences.HasFlag(i)).ToList();
+        var influence = _choices.ExtraModifier.InfluencedMods && influences.Count > 0 ? influences[rng.Next(influences.Count)] : ItemInfluence.None;
+        // One more affix as the server adds one (ItemRolls.AffixesToAdd: the base's pool at the item level, its families
+        // and metamods), but drawn without the blacklist and on the side asked for.
+        Item? AddOne(Item it, (int Prefix, int Suffix) max, int? side)
         {
-            var open = pool.Where(p => p.Mod.GenerationType == side && !p.Mod.Families.Any(families.Contains) && mods.All(m => m.Hash != p.Mod.Hash)).ToList();
+            var probe = influence == ItemInfluence.None ? it : it with { Influences = it.Influences | influence };
+            var open = rolls.AffixesToAdd(probe, max).Where(p => p.Weight > 0 && !Blacklisted(p.Mod) && (side is null || p.Mod.GenerationType == side)).ToList();
             if (open.Count == 0) return null;
             int at = rng.Next(open.Sum(p => p.Weight));
             var mod = open.First(p => (at -= p.Weight) < 0).Mod;
-            foreach (int f in mod.Families) families.Add(f);
-            var rolled = mod.Roll(ModSection.Explicit, rng);
-            mods.Add(rolled);
-            added.Add(rolled);
-            return rolled;
+            return it with { Mods = [.. it.Mods, mod.Roll(ModSection.Explicit, rng)] };
         }
-        const int Prefix = ItemRolls.Prefix, Suffix = ItemRolls.Suffix;
-        int chosenSide = rng.Next(2) == 0 ? Prefix : Suffix;
-        if (item.Rarity is ItemRarity.Rare or ItemRarity.Magic)
+        var now = item;
+        int before = now.Mods.Count;
+        // A rare (or magic item) is first filled to its most prefixes and suffixes.
+        if (now.Rarity is ItemRarity.Rare or ItemRarity.Magic)
         {
-            var (most, mostSuffixes) = item.Rarity == ItemRarity.Rare ? rolls.RareMaxAffixes(item) : (1, 1);
-            while (mods.Count(m => m.Section == ModSection.Explicit && SideOf(m) == Prefix) < most && Add(Prefix) is not null) { }
-            while (mods.Count(m => m.Section == ModSection.Explicit && SideOf(m) == Suffix) < mostSuffixes && Add(Suffix) is not null) { }
+            var most = now.Rarity == ItemRarity.Rare ? rolls.RareMaxAffixes(now) : (1, 1);
+            while (AddOne(now, most, null) is { } filled) now = filled;
         }
-        if (Add(chosenSide) is null && Add(chosenSide == Prefix ? Suffix : Prefix) is null) return null;
-        chosenSide = SideOf(added[^1]);
+        int filledBy = now.Mods.Count - before;
+        int first = rng.Next(2) == 0 ? Prefix : Suffix;
+        Item? Beyond(int side) => AddOne(now, (OnSide(now, Prefix) + (side == Prefix ? 1 : 0), OnSide(now, Suffix) + (side == Suffix ? 1 : 0)), side);
+        if ((Beyond(first) ?? Beyond(first == Prefix ? Suffix : Prefix)) is not { } extra) return null;
+        var added = extra.Mods[^1];
+        int chosenSide = SideOf(added);
         // A unique's own modifiers have no side: only the one added is fractured there.
-        bool Fractured(ItemMod m) => m.Section == ModSection.Explicit && (item.Rarity == ItemRarity.Unique ? ReferenceEquals(m, added[^1]) : SideOf(m) == chosenSide);
-        var ordered = mods.Where(m => m.Section != ModSection.Explicit)
-            .Concat(mods.Where(Fractured)).Concat(mods.Where(m => m.Section == ModSection.Explicit && !Fractured(m))).ToList();
-        log.Add($"extra {(chosenSide == Prefix ? "prefix" : "suffix")} \"{catalog.Mods.Describe(added[^1])}\"" +
-            (influencedBy is null ? "" : $" ({influencedBy} modifiers in the pool)") +
-            (added.Count > 1 ? $" after {added.Count - 1} to fill the item" : "") + $", {ordered.Count(Fractured)} fractured");
-        return item with { Mods = ordered, FracturedCount = (byte)ordered.Count(Fractured), RequiredLevel = null };
+        bool Fractured(ItemMod m) => m.Section == ModSection.Explicit && (item.Rarity == ItemRarity.Unique ? ReferenceEquals(m, added) : SideOf(m) == chosenSide);
+        // The fractured modifiers go to the front of the explicits, where the client reads them.
+        var ordered = extra.Mods.Where(m => m.Section != ModSection.Explicit)
+            .Concat(extra.Mods.Where(Fractured)).Concat(extra.Mods.Where(m => m.Section == ModSection.Explicit && !Fractured(m))).ToList();
+        log.Add($"extra {(chosenSide == Prefix ? "prefix" : "suffix")} \"{catalog.Mods.Describe(added)}\"" +
+            (influence == ItemInfluence.None ? "" : $" ({influence} modifiers in the pool)") +
+            (filledBy > 0 ? $" after {filledBy} to fill the item" : "") + $", {ordered.Count(Fractured)} fractured");
+        return extra with { Mods = ordered, FracturedCount = (byte)ordered.Count(Fractured), RequiredLevel = null };
     }
 
     /// <summary>A stat whose value says which one and not how much: a granted support gem and its socket, a Timeless
@@ -446,26 +435,41 @@ public sealed class ExcitingItemsMod : IMod
         var found = new List<string>();
         lock (watch)
         {
-            var all = ground.All();
-            uint last = all.Count == 0 ? 0 : all.Max(e => e.Id);
             // What already lay there when the mod first saw this ground is left alone.
-            if (!watch.Started) { watch.Started = true; watch.Next = last + 1; return; }
-            foreach (var (id, lying) in all)
+            if (!watch.Started)
             {
-                if (id < watch.Next || lying.Item.Rarity is not (ItemRarity.Magic or ItemRarity.Rare or ItemRarity.Unique)) continue;
-                var forced = Volatile.Read(ref _forced);
+                var all = ground.All();
+                watch.Started = true; watch.Next = all.Count == 0 ? InstanceGround.FirstItemId : all.Max(e => e.Id) + 1;
+                return;
+            }
+            // Ground ids count up: the new ones are those from Next until the first id never given out (neither on the
+            // ground nor taken), so a tick looks only at what dropped since the last one.
+            var fresh = new List<(uint Id, WorldItemObject Item)>();
+            uint end = watch.Next;
+            for (; ; end++)
+            {
+                var lying = ground.Get(end);
+                if (lying is null && !ground.WasTaken(end)) break;
+                if (lying is not null) fresh.Add((end, lying));
+            }
+            watch.Next = end;
+            foreach (var (id, lying) in fresh)
+            {
+                // An item a player put down was a drop once already: dropping it again must not roll it again.
+                if (watch.Ours.Remove(id) || lying.PlayerDropped
+                    || lying.Item.Rarity is not (ItemRarity.Magic or ItemRarity.Rare or ItemRarity.Unique)) continue;
+                var forced = Volatile.Read(ref _forced) is { } f && ReferenceEquals(f.For, conn) ? f : null;
                 var log = new List<string>();
                 if (Excite(conn, lying.Item, Random.Shared, forced, out string effects, log) is not { } changed) continue;
+                var (by, shared) = ground.Origin(id);
                 // Only one caller gets the item, so a pickup in the same moment cannot duplicate it.
                 if (ground.Take(id, lying) is null) continue;
-                uint replaced = ground.Add(new WorldItemObject(lying.GridX, lying.GridY, changed));
-                last = Math.Max(last, replaced);
+                watch.Ours.Add(ground.Add(lying with { Item = changed }, by, shared));
                 if (forced is not null) Interlocked.CompareExchange(ref _forced, null, forced);
                 string name = Game.ItemsFor(conn).ByHash(changed.TypeHash)?.Name ?? "item";
                 found.Add($"{changed.Rarity} {name} with {effects}");
                 _log($"{changed.Rarity} {name} at ({lying.GridX}, {lying.GridY}): {string.Join("; ", log)}");
             }
-            watch.Next = last + 1;
         }
         if (!_choices.Announce) return;
         foreach (string text in found) await Program.PlayerOf(conn).Tell("* Exciting item dropped: " + text);
@@ -474,15 +478,14 @@ public sealed class ExcitingItemsMod : IMod
     // ---- loot filters ----
 
     // The rule goes at the top of every loot filter in the folder, between its two marker lines, or comes out again.
-    // The old name's rule comes out in any case.
+    // Off by default: it edits the player's own filters, so only when the player turns it on.
     static string Filters(Choices choices)
     {
         string folder = choices.FilterFolder.Trim().Length > 0 ? choices.FilterFolder.Trim()
             : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "My Games", "Path of Exile", "LocalExile");
         if (!Directory.Exists(folder)) return $"no loot filter folder at {folder}";
         bool wanted = choices.ShowInFilters && choices.Mark;
-        string own = Path.Combine(folder, OwnFilter), oldOwn = Path.Combine(folder, OldOwnFilter);
-        if (File.Exists(oldOwn)) File.Delete(oldOwn);
+        string own = Path.Combine(folder, OwnFilter);
         var filters = Directory.GetFiles(folder, "*.filter").Where(f => !f.Equals(own, StringComparison.OrdinalIgnoreCase)).ToList();
         int changed = 0;
         string[] block = [FilterStart, .. FilterRule, FilterEnd];
@@ -498,7 +501,6 @@ public sealed class ExcitingItemsMod : IMod
         {
             var lines = File.ReadAllLines(file).ToList();
             var before = string.Join('\n', lines);
-            Cut(lines, OldStart, OldEnd);
             Cut(lines, FilterStart, FilterEnd);
             if (wanted) lines.InsertRange(0, block.Append(""));
             if (string.Join('\n', lines) == before) continue;

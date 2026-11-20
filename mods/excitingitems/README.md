@@ -14,8 +14,8 @@ Rare chances on magic, rare and unique drops, each with its own chance and all a
   item level allows), without the item becoming influenced.
 
 They apply to influenced items too: the game's crafting rules against fracturing influenced or synthesised items are
-for currency, not for drops. An item with any of them drops synthesised, so it looks special on the ground, and a rule
-put at the top of your loot filters shows it with a beam and a sound. Chat names which effects a drop got, not what
+for currency, not for drops. An item with any of them drops synthesised, so it looks special on the ground, and, with
+`showInFilters` on, a rule put at the top of your loot filters shows it with a beam and a sound. Chat names which effects a drop got, not what
 they are: identify it to see.
 
 ## Which unique modifiers can come
@@ -62,13 +62,14 @@ of item in every mode.
 | `extraModifier.chance` | 1000 | 1 in this many drops |
 | `extraModifier.influencedMods` | on | the extra modifier can also be an influenced item's modifier (the item stays uninfluenced) |
 | `blacklist` | (above) | modifiers never used as implicits |
-| `mark`, `showInFilters` | on, on | the synthesised look, and the loot filter rule |
+| `mark`, `showInFilters` | on, off | the synthesised look, and the loot filter rule |
 | `announce` | on | the chat line |
 | `filterFolder` | (empty) | the loot filter folder; empty is Documents\My Games\Path of Exile\LocalExile |
 
-The loot filter rule goes between two marker lines at the top of every `.filter` file in the folder, and comes out
-again when the setting is off. Without a filter of your own the mod writes one that holds only the rule.
+With `showInFilters` on, the loot filter rule goes between two marker lines at the top of every `.filter` file in the
+folder, and comes out again when the setting is turned off. Without a filter of your own the mod writes one that holds
+only the rule.
 
-Formerly Unique Implicits: its loot filter rule and filter file are taken out when this mod loads.
+Only new drops are changed: an item a player drops from the inventory is never rolled again.
 
 Works with LocalExile 0.5.2-beta and its main branch; it needs no change in LocalExile.

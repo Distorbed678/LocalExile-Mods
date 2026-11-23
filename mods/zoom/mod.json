@@ -3,7 +3,7 @@
   "name": "Zoom",
   "description": "A wider view in normal play: the camera stands further back, and /zoom sets how far.",
   "author": "evrydayjunglist",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "compatibleClientVersions": ["0.5.1-beta", "0.5.2-beta"],
   "kind": "feature",
   "depends": ["Game"]

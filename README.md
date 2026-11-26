@@ -55,6 +55,7 @@ works with. The maintainers publish the releases of the mods in this repository.
 | [mapdrop](mods/mapdrop/) | Configurable bonus map rolls for eligible kills |
 | [pob](mods/pob/) | preview and import character builds through an external converter; requires LocalExile #639 |
 | [itemrarity](mods/itemrarity/) | 10× the chance of magic, rare and unique equipment |
+| [harvestheartofthegrove](mods/harvestheartofthegrove/) | the 3.13 Heart of the Grove: now and then a map's Sacred Grove holds Oshabi's encounter instead of crops; a league's mod |
 | [excitingitems](mods/excitingitems/) | rare drop surprises: unique modifiers as extra implicits, empowered modifiers and a fractured extra modifier, all configurable |
 
 ## Contributing

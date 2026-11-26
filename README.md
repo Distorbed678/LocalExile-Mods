@@ -60,6 +60,7 @@ works with. The maintainers publish the releases of the mods in this repository.
 | [nessadevelopmenttabs](mods/nessadevelopmenttabs/) | Nessa sells Awakened and Exceptional Gems and Maps of every kind; a league's mod |
 | [phreciaascendancies](mods/phreciaascendancies/) | Legacy of Phrecia's alternate ascendancy classes and the Phrecia league; a league's mod |
 | [playerbots](mods/playerbots/) | server-driven characters that play the campaign, visit the towns and join a party; a league's mod |
+| [survivors](mods/survivors/) | the Survivors league: survive the horde, skills cast themselves, an upgrade each run level; a league's mod |
 | [excitingitems](mods/excitingitems/) | rare drop surprises: unique modifiers as extra implicits, empowered modifiers and a fractured extra modifier, all configurable |
 
 ## Contributing

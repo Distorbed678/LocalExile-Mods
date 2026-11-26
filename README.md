@@ -57,6 +57,7 @@ works with. The maintainers publish the releases of the mods in this repository.
 | [itemrarity](mods/itemrarity/) | 10× the chance of magic, rare and unique equipment |
 | [harvestheartofthegrove](mods/harvestheartofthegrove/) | the 3.13 Heart of the Grove: now and then a map's Sacred Grove holds Oshabi's encounter instead of crops; a league's mod |
 | [nessadevelopmenttabs](mods/nessadevelopmenttabs/) | Nessa sells Awakened and Exceptional Gems and Maps of every kind; a league's mod |
+| [playerbots](mods/playerbots/) | server-driven characters that play the campaign, visit the towns and join a party; a league's mod |
 | [excitingitems](mods/excitingitems/) | rare drop surprises: unique modifiers as extra implicits, empowered modifiers and a fractured extra modifier, all configurable |
 
 ## Contributing
